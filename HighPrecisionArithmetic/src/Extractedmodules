@@ -1,0 +1,65 @@
+module HighPrecisionArithmetic
+
+use high_precision_integer_mod
+
+use high_precision_float_mod
+
+end  module HighPrecisionArithmetic
+
+
+MODULE high_precision_float_mod
+
+  USE high_precision_integer_mod
+    MODULE PROCEDURE hpf_equal
+
+    MODULE PROCEDURE hpf_less
+
+    MODULE PROCEDURE hpf_add
+
+    MODULE PROCEDURE hpf_subtract
+
+    MODULE PROCEDURE hpf_unary_negate
+
+    MODULE PROCEDURE hpf_multiply
+
+    MODULE PROCEDURE hpf_divide
+
+END MODULE high_precision_float_mod
+
+
+MODULE high_precision_integer_mod
+
+    MODULE PROCEDURE hpi_add
+
+    MODULE PROCEDURE hpi_unary_negate
+
+    MODULE PROCEDURE hpi_subtract
+
+    MODULE PROCEDURE hpi_multiply
+
+    MODULE PROCEDURE hpi_divide
+
+    MODULE PROCEDURE hpi_equal
+
+    MODULE PROCEDURE hpi_less
+
+END MODULE high_precision_integer_mod
+
+
+
+
+PROGRAM test_high_precision_float
+
+  USE high_precision_float_mod
+
+  USE high_precision_integer_mod
+END PROGRAM test_high_precision_float
+
+
+PROGRAM test_high_precision_integer
+
+  USE high_precision_integer_mod
+
+END PROGRAM test_high_precision_integer
+
+

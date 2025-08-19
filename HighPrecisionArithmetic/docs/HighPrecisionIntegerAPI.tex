@@ -1,0 +1,485 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb, amsfonts}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{fortranstyle}{
+	backgroundcolor=\color{backcolour},   
+	commentstyle=\color{codegreen},
+	keywordstyle=\color{magenta},
+	numberstyle=\tiny\color{codegray},
+	stringstyle=\color{codepurple},
+	basicstyle=\ttfamily\footnotesize,
+	breakatwhitespace=false,         
+	breaklines=true,                 
+	captionpos=b,                    
+	keepspaces=true,                 
+	numbers=left,                    
+	numbersep=5pt,                  
+	showspaces=false,                
+	showstringspaces=false,
+	showtabs=false,                  
+	tabsize=2,
+	language=Fortran
+}
+\lstset{style=fortranstyle}
+
+\title{Technical API Documentation: \texttt{high\_precision\_integer\_mod}}
+\author{Akhil Akkapelli}
+\date{\today}
+
+\begin{document}
+	
+	\maketitle
+	\tableofcontents
+	\newpage
+	
+
+	\section{Introduction}
+	This document provides a detailed technical API documentation for the Fortran module\\ \texttt{high\_precision\_integer\_mod}. This module implements an arbitrary-precision integer arithmetic system by defining the \texttt{high\_precision\_int} derived type. It includes routines for conversion, and overloads standard arithmetic and comparison operators to enable seamless high-precision computations. Large integers are represented as coefficients in base $2^{32}$.
+
+	\section{High-Precision Integer Representation: \texttt{high\_precision\_int}}
+
+	A high-precision integer \( N \) is modeled as a 4-tuple:
+	\[ 
+	\text{hpi} = (\mathbf{c}, \ell, L, s)
+	\]
+	with the following components:
+	\begin{itemize}
+	\item \( \mathbf{c} = (c_1, \dots, c_L) \in [0, B)^L \): array of digits in base \( B = 2^{32} \)
+	\item \( \ell \in \{1, 2, \dots, L\} \): number of significant digits
+	\item \( L \in \mathbb{N} \): total allocated digit capacity
+	\item \( s \in \{-1, 0, +1\} \): sign of the number
+	\end{itemize}
+
+	The value represented is:
+	\begin{equation}
+	N =
+	\begin{cases}
+		0, & \text{if } s = 0 \\
+		s \cdot \sum_{i=1}^{\ell} c_i B^{i-1}, & \text{otherwise}
+	\end{cases}.
+	\end{equation}
+
+	This representation satisfies:
+	\begin{itemize}
+	\item \( 0 \le c_i < B \quad \forall i \in \{1, \dots, L\} \)
+	\item If \( s = 0 \), then \( \ell = 1 \) and \( c_1 = 0 \)
+	\item If \( s \neq 0 \), then \( c_\ell \ne 0 \)
+	\end{itemize}
+
+	\subsection*{Fortran Type Definition}
+
+	This mathematical structure is implemented using the following Fortran derived type:
+	\lstinputlisting[firstline=5, lastline=10, firstnumber=5]{../src/HighPrecisionInteger.f90}
+	
+	\newpage
+	
+	\section{Normalization Procedure: \texttt{normalize\_hpi}}
+	
+	The subroutine \texttt{normalize\_hpi} transforms a high-precision number \( N \) into its canonical internal representation by enforcing coefficient bounds, propagating carry, and trimming insignificant digits.
+	
+	\subsection*{Input/Output}
+	  
+	  \[
+	  \text{Input \& Output: } \texttt{hpi}(\mathbf{c}, \ell, L, s),\quad N = s \cdot \sum_{i=1}^\ell c_i B^{i-1}
+	  \]
+	
+	\lstinputlisting[firstline=44, lastline=52, firstnumber=44]{../src/HighPrecisionInteger.f90}
+		
+	\subsection*{Step 1: Handle zero-length input}
+	If \( \ell = 0 \),  
+	\[ c_1 = 0,\quad \ell = 1, \text{ and }  s = 0\quad \Rightarrow\quad \underline{\texttt{hpi} = ([0], 1, L, 0)} \]
+	\lstinputlisting[firstline=54, lastline=59, firstnumber=54]{../src/HighPrecisionInteger.f90}
+	
+	\subsection*{Step 2: Normalize coefficients and propagate carry}
+	\[ \text{carry} := 0, \quad i := 1, \quad \text{last\_nonzero\_idx} := 1 \]
+	\lstinputlisting[firstline=61, lastline=63, firstnumber=61]{../src/HighPrecisionInteger.f90}
+	For each index \( i \):
+	 \[  i > L \Rightarrow \text{ERROR (exceeds allocated capacity)} \]
+	\[ v_i = \begin{cases} c_i + \text{carry} &\text{if } i \leq \ell \\ \text{carry} &\text{if } i > \ell \Rightarrow \ell := i \end{cases} \]
+	\[ c_i := v_i \bmod B, \quad \text{carry} := \left\lfloor \frac{v_i}{B} \right\rfloor \]
+	\lstinputlisting[firstline=65, lastline=78, firstnumber=65]{../src/HighPrecisionInteger.f90}
+	
+	Track the last non-zero index:
+	\[ c_i \ne 0 \Rightarrow \text{last\_nonzero\_idx} := i \]
+	\lstinputlisting[firstline=80, lastline=85, firstnumber=80]{../src/HighPrecisionInteger.f90}
+	
+	\subsection*{Step 3: Finalize logical length}
+	\[ \ell := \text{last\_nonzero\_idx} \]
+	\lstinputlisting[firstline=87, lastline=87, firstnumber=87]{../src/HighPrecisionInteger.f90}
+	
+	\subsection*{Step 4: Adjust the sign}
+	\[
+	s := \begin{cases}
+		0 & \text{if } \ell = 1 \text{ and } c_1 = 0 \\
+		+1 & \text{if } s = 0 \text{ and } (\ell > 1 \text{ or } c_1 \ne 0) \\
+		s & \text{otherwise}
+	\end{cases}
+	\]
+	\lstinputlisting[firstline=89, lastline=94, firstnumber=89]{../src/HighPrecisionInteger.f90}
+
+	\subsection*{Resulting Representation}
+	
+	After normalization, the high-precision integer is in canonical form:
+	\[
+	\underline{\texttt{hpi} = (\mathbf{c}, \ell, L, s)}
+	\]
+	where:
+	\begin{itemize}
+		\item \( \ell \ge 1 \) and \( c_\ell \ne 0 \) if \( s \ne 0 \)
+		\item \( \ell = 1 \), \( c_1 = 0 \), and \( s = 0 \) if the number is zero
+		\item All coefficients satisfy \( 0 \le c_i < B \)
+	\end{itemize}
+	Thus, the number represented is:
+	\[
+	N = s \cdot \sum_{i=1}^\ell c_i B^{i-1}
+	\]
+	
+	\newpage
+
+	\section{HPI Constructor from Integer: \texttt{new\_hpi\_from\_integer}}
+	
+	Constructs a high-precision number from a 64-bit signed integer by extracting base-\(2^{32}\) digits and assigning sign and logical length accordingly.
+	
+	\subsection*{Input/Output}
+	\[
+	\text{Input: } x \in \mathbb{Z}^{64}
+	\]
+	\[
+	\text{Output: } \texttt{hpi}(\mathbf{c}, \ell, L, s),\quad \text{represents } x\text{ using \texttt{hpi}: } x = s \cdot \sum_{i=1}^{\ell} c_i B^{i-1},\ \text{with base } B = 2^{32}
+	\]
+	\lstinputlisting[firstline=157, lastline=164, firstnumber=157]{../src/HighPrecisionInteger.f90}
+	
+	\subsection*{Constants and Parameters}
+	\[
+	B := 2^{32}, \quad M := -2^{63}, \quad \text{MASK32} := 2^{32} - 1 = \text{0xFFFFFFFF}
+	\]
+	\lstinputlisting[firstline=166, lastline=169, firstnumber=166]{../src/HighPrecisionInteger.f90}
+	
+	\subsection*{Step 1: Determine required coefficient length}
+	\[
+	\ell_{\min} =
+	\begin{cases}
+		1 & \text{if } x = 0 \\
+		2 & \text{else if } x = M \\
+		1 & \text{else if } |x| < B \\
+		2 & \text{else}
+	\end{cases}
+	\]
+	\lstinputlisting[firstline=170, lastline=178, firstnumber=170]{../src/HighPrecisionInteger.f90}
+	
+	\subsection*{Step 2: Allocate structure and Initialize coefficeints}
+	\[
+	L := \ell, \quad \text{initialize } \mathbf{c} = \mathbf{0}, \quad \ell = \ell_{\text{min}}
+	\]
+	\lstinputlisting[firstline=180, lastline=182, firstnumber=180]{../src/HighPrecisionInteger.f90}
+	
+	\subsection*{Step 3: Assign sign and coefficient values}
+	\[
+	\text{If } x = 0: \quad s = 0, \quad \mathbf{c} = [0]
+	\]
+	\lstinputlisting[firstline=184, lastline=185, firstnumber=184]{../src/HighPrecisionInteger.f90}
+	
+	\[
+	\text{Else if } x = M: \quad s = -1, \quad c_1 = 0, \quad c_2 = B \gg -1
+	\]
+	\lstinputlisting[firstline=186, lastline=189, firstnumber=186]{../src/HighPrecisionInteger.f90}
+	
+	\[
+	\text{Else: } s = \text{sign}(x), \quad |x| = \text{mag}_x,
+	\quad c_1 = |x| \bmod B,
+	\quad c_2 = \left\lfloor \frac{|x|}{B} \right\rfloor \text{ if } |x| \ge B
+	\]
+	\lstinputlisting[firstline=190, lastline=199, firstnumber=198]{../src/HighPrecisionInteger.f90}
+	
+	\[
+	\underline{\texttt{hpi} = (\mathbf{c}, \ell, L, s)} \Rightarrow N = s \cdot \sum_{i=1}^\ell c_i B^{i-1} \equiv x
+	\]
+	
+
+	\newpage
+	
+
+	\section{HPI to Integer Converter: \texttt{hpi\_to\_integer}}
+	
+	Converts a high-precision number to a 64-bit integer, if the value is within its representable range.
+	
+	\subsection*{Input/Output}
+	\[
+	\text{Input: } \texttt{hpi} = (\mathbf{c}, \ell, L, s)
+	\]
+	\[
+	\text{Output: } x \in \mathbb{Z}^{64}, \quad \text{such that if representable, } x = s \cdot \sum_{i=1}^{\ell} c_i' B^{i-1},\ \text{with base } B = 2^{32}
+	\]
+	\lstinputlisting[firstline=209, lastline=212, firstnumber=209]{../src/HighPrecisionInteger.f90}
+	
+	\subsection*{Constants and Parameters}
+	\[
+	 C_1^{\text{max+}} := 2^{31} - 1, \quad C_1^{\text{max-}} := 2^{31}
+	\]
+	\lstinputlisting[firstline=217, lastline=218, firstnumber=217]{../src/HighPrecisionInteger.f90}
+	
+	\subsection*{Step 1: Check for zero}
+	\[
+	\text{If } s = 0 \Rightarrow   \texttt{hpi}([0], 1, L, 0) \equiv \underline{x := 0} 
+	\]
+	\lstinputlisting[firstline=220, lastline=223, firstnumber=220]{../src/HighPrecisionInteger.f90}
+	
+	\subsection*{Step 2: Compute absolute value based on number of coefficients}
+	\[
+	\text{If } \ell = 1 : |N| = c_1
+	\]
+	\lstinputlisting[firstline=225, lastline=227, firstnumber=225]{../src/HighPrecisionInteger.f90}
+	
+	\[
+	\text{Else if } \ell = 2:
+	\quad c_0' := c_0,
+	\quad c_1' := c_1
+	\]
+	\lstinputlisting[firstline=228, lastline=230, firstnumber=228]{../src/HighPrecisionInteger.f90}
+	
+	\[
+	\text{If } s = +1\quad \land \quad (c_1' \cdot B + c_0') > C_1^{\text{max+}} \Rightarrow \text{ERROR: overflow}
+	\]
+	\[
+	\text{Else if } s = -1 \quad \land \quad (c_1' \cdot B + c_0') > C_1^{\text{max-}} \Rightarrow \text{ERROR: underflow}
+	\]
+	\lstinputlisting[firstline=232, lastline=236, firstnumber=232]{../src/HighPrecisionInteger.f90}
+	
+	\[
+	|N| = c_0' + c_1' \cdot B
+	\]
+	\lstinputlisting[firstline=238, lastline=238, firstnumber=238]{../src/HighPrecisionInteger.f90}
+	
+	\[
+	\text{Else if } \ell > 2 \Rightarrow \text{STOP: cannot fit in 64-bit signed integer}
+	\]
+	\lstinputlisting[firstline=239, lastline=241, firstnumber=239]{../src/HighPrecisionInteger.f90}
+	
+	\subsection*{Step 3: Apply sign}
+	\[
+	x = s \cdot |N|
+	\]
+	\lstinputlisting[firstline=243, lastline=245, firstnumber=243]{../src/HighPrecisionInteger.f90}
+	
+	\subsection*{Resulting Output}
+	\[
+	\underline{x = s \cdot \sum_{i=1}^{\ell} c_i' B^{i-1}}, \quad \text{where }\ x \in \mathbb{Z}^{64} \equiv  [-2^{63}, 2^{63} - 1]
+	\]
+	
+
+	% \section{Constructors and Converters}
+	
+	% \subsection{\texttt{new\_hpi\_from\_integer}}
+	% Converts a standard 64-bit integer $X$ into a \texttt{high\_precision\_int}. Since the base is $B=2^{32}$, a 64-bit integer can be represented by at most two coefficients.
+	
+	% \lstinputlisting[firstline=132, lastline=169]{../src/HighPrecisionInteger.f90}
+	% \begin{align}
+	% 	\text{coeffs}(1) &= |X| \pmod{2^{32}} \\
+	% 	\text{coeffs}(2) &= \lfloor |X| / 2^{32} \rfloor
+	% \end{align}
+	% The sign is determined from the input $X$.
+	
+	% \subsection{\texttt{new\_hpi\_from\_string}}
+	% Converts a decimal string into a \texttt{high\_precision\_int}. This is achieved using a form of Horner's method, optimized for large numbers. The string is processed in chunks of 9 decimal digits, as $10^9$ fits comfortably within a 32-bit integer. Let the chunk base be $B_{10} = 10^9$.
+
+	% \lstinputlisting[firstline=312, lastline=386]{../src/HighPrecisionInteger.f90}
+	% \begin{enumerate}
+	% 	\item The string is parsed into chunks $C_k, C_{k-1}, \dots, C_0$.
+		
+	% 	\item The number is constructed iteratively. Let the high-precision result be $H$.
+		
+	% 	\begin{verbatim}
+	% 		H = 0
+	% 		For each chunk C_i from left to right:
+	% 		H = H * B_10
+	% 		H = H + C_i
+	% 	\end{verbatim}
+		
+	% 	This involves high-precision multiplication and addition at each step.
+	% \end{enumerate}
+	
+	% \subsection{\texttt{hpi\_to\_string}}
+	% Converts a \texttt{high\_precision\_int} to its decimal string representation. This is the inverse process of \texttt{new\_hpi\_from\_string} and relies on repeated division.
+
+	% \lstinputlisting[firstline=233, lastline=309]{../src/HighPrecisionInteger.f90}
+
+	
+	% 	\begin{enumerate}
+	% 	\item Let the high-precision number be $H$. We use a decimal base $B_{10} = 10^9$.
+	% 	\item In a loop, we repeatedly calculate the quotient and remainder of $H$ divided by $B_{10}$.
+	% 	\begin{align}
+	% 		R_i &= H \pmod{B_{10}} \\
+	% 		H &= \lfloor H / B_{10} \rfloor
+	% 	\end{align}
+	% 	\item The remainders $R_i$ are the base-$10^9$ "digits" of the number, in reverse order.
+	% 	\item These digits are converted to formatted decimal strings (e.g., padding with leading zeros to 9 digits) and concatenated to form the final result.
+	% \end{enumerate}
+	% The core of this function is a high-precision division by a small integer constant.
+	
+	% \section{Arithmetic Operators}
+	
+	% \subsection{Addition: \texttt{OPERATOR(+)}}
+	% The interface for the addition operator is defined as:
+	% \lstinputlisting[firstline=18, lastline=20]{../src/HighPrecisionInteger.f90}
+	
+	% The implementation of the \texttt{hpi\_add} function is:
+	% The addition of two high-precision integers $A$ and $B$ depends on their signs.
+	% \begin{itemize}
+	% 	\item \textbf{Same Sign:} The magnitudes are added. Let $A = \sum a_i B^{i-1}$ and $B = \sum b_i B^{i-1}$. The sum $S = A+B$ has coefficients $s_i$ calculated as:
+	% 	\begin{align}
+	% 		\text{sum}_i &= a_i + b_i + \text{carry}_{i-1} \\
+	% 		s_i &= \text{sum}_i \pmod B \\
+	% 		\text{carry}_i &= \lfloor \text{sum}_i / B \rfloor
+	% 	\end{align}
+	% 	The result has the same sign as the operands.
+	% 	\item \textbf{Different Signs:} This is equivalent to subtracting the smaller magnitude from the larger magnitude. The function \texttt{abs\_subtract} is called to perform $|A| - |B|$ or $|B| - |A|$. The sign of the result is the sign of the operand with the larger magnitude.
+	% \end{itemize}
+	
+	% \lstinputlisting[firstline=569, lastline=629]{../src/HighPrecisionInteger.f90}
+	
+	% \subsection{Subtraction: \texttt{OPERATOR(-)}}
+	% The interface for the subtraction operator is defined as:
+	% \lstinputlisting[firstline=22, lastline=25]{../src/HighPrecisionInteger.f90}
+	
+	% Subtraction $A-B$ is implemented as the addition of the negation of $B$:
+	% \begin{equation}
+	% 	A - B = A + (-B)
+	% \end{equation}
+	% 	\lstinputlisting[firstline=632, lastline=637]{../src/HighPrecisionInteger.f90}
+	% The unary negation operator simply flips the sign of the operand (unless it is zero). The logic is then handled by the addition function. The internal \texttt{abs\_subtract} routine performs grade-school subtraction with borrowing when needed. For $A-B$ where $|A| \ge |B|$:
+	% \begin{align}
+	% 	\text{diff}_i &= a_i - b_i - \text{borrow}_{i-1} \\
+	% 	\text{if } \text{diff}_i < 0: \\
+	% 	d_i &= \text{diff}_i + B \\
+	% 	\text{borrow}_i &= 1 \\
+	% 	\text{else}: \\
+	% 	d_i &= \text{diff}_i \\
+	% 	\text{borrow}_i &= 0
+	% \end{align}
+	
+	% The \texttt{hpi\_unary\_negate} function is:
+	% \lstinputlisting[firstline=559, lastline=566]{../src/HighPrecisionInteger.f90}
+	
+	
+	% \subsection{Multiplication: \texttt{OPERATOR(*)}}
+	% Multiplication is implemented using the standard long-multiplication (or grade-school) algorithm. Given $A = \sum_{i=0}^{n-1} a_i B^i$ and $B = \sum_{j=0}^{m-1} b_j B^j$, their product $P$ is:
+	% \begin{equation}
+	% 	P = A \times B = \sum_{i=0}^{n-1} \sum_{j=0}^{m-1} (a_i b_j) B^{i+j}
+	% \end{equation}
+	% The algorithm uses a result array of size $n+m$. It iterates through each coefficient $a_i$ of $A$ and each coefficient $b_j$ of $B$. For each pair, the partial product $a_i \times b_j$ is calculated and added to the result at the appropriate position, propagating carries.
+	% \begin{verbatim}
+	% 	For i from 0 to n-1:
+	% 	carry = 0
+	% 	For j from 0 to m-1:
+	% 	product = a_i * b_j + result_{i+j} + carry
+	% 	result_{i+j} = product mod B
+	% 	carry = floor(product / B)
+	% 	result_{i+m} = carry
+	% \end{verbatim}
+	% The final sign is the product of the signs of the operands.
+	
+	% The interface for the multiplication operator is defined as:
+	% \lstinputlisting[firstline=27, lastline=29]{../src/HighPrecisionInteger.f90}
+	
+	% The implementation of the \texttt{hpi\_multiply} function is:
+	% \lstinputlisting[firstline=640, lastline=696]{../src/HighPrecisionInteger.f90}
+	
+	% \subsection{Division: \texttt{OPERATOR(/)}}
+	% The module implements long division via the \texttt{hpi\_div\_rem} subroutine, which finds both the quotient $Q$ and remainder $R$ such that $A = Q \cdot D + R$ with $|R| < |D|$. The public division operator \texttt{/} simply returns $Q$.
+	
+	% The core logic resides in \texttt{div\_rem\_magnitude}, which performs division on the absolute values of the numerator and denominator. This is the most algorithmically complex part of the module. It works as follows:
+	% \begin{enumerate}
+	% \lstinputlisting[firstline=786, lastline=888]{../src/HighPrecisionInteger.f90}
+	% 	\item The algorithm aligns the most significant digit of the divisor $D$ with the most significant digit of the current remainder (initially the numerator $A$). The difference in coefficient count, \texttt{len\_diff}, gives the position of the most significant digit of the quotient.
+	% 	\item It then proceeds from the most significant quotient digit to the least significant. For each quotient digit $q_i$, it must determine the largest integer $q_i$ such that:
+	% 	\begin{equation}
+	% 		q_i \times (D \cdot B^i) \le \text{Current Remainder}
+	% 	\end{equation}
+	% 	\item Instead of using repeated subtraction to find $q_i$, which is inefficient, the implementation uses a \textbf{binary search} for $q_i$ in the range $[0, B-1]$. This dramatically improves performance, especially when quotient digits are large.
+	% 	\item Once $q_i$ is found, the product $q_i \times (D \cdot B^i)$ is subtracted from the current remainder to produce the new remainder for the next step.
+	% 	\item The process repeats until all quotient digits are found.
+	% \end{enumerate}
+	% The final signs of the quotient and remainder are determined based on the signs of the original numerator and denominator.
+	
+	% The interface for the division operator is defined as:
+	% \lstinputlisting[firstline=31, lastline=33]{../src/HighPrecisionInteger.f90}
+	
+	% The implementation of the \texttt{hpi\_divide} function is:
+	% \lstinputlisting[firstline=891, lastline=897]{../src/HighPrecisionInteger.f90}
+	
+	% \section{Comparison Operators}
+	% \subsection{Equality: \texttt{OPERATOR(==)}}
+	% The interface for the equality operator is defined as:
+	% \lstinputlisting[firstline=35, lastline=37]{../src/HighPrecisionInteger.f90}
+	
+	% Two numbers are equal if and only if:
+	% \begin{enumerate}
+	% 	\item Their signs are identical.
+	% 	\item Their logical lengths (\texttt{ncoeffs}) are identical.
+	% 	\item All their corresponding coefficients are identical.
+	% \end{enumerate}
+	% The routine checks these conditions in order.
+	
+	% The implementation of the \texttt{hpi\_equal} function is:
+	% \lstinputlisting[firstline=484, lastline=507]{../src/HighPrecisionInteger.f90}
+	
+	% \subsection{Less Than: \texttt{OPERATOR(<)}}
+	% The interface for the less than operator is defined as:
+	% \lstinputlisting[firstline=39, lastline=41]{../src/HighPrecisionInteger.f90}
+	
+	% Comparison $A < B$ follows these rules:
+	% \begin{enumerate}
+	% 	\item If the signs differ, the negative number is smaller (e.g., $-1 < 0 < 1$).
+	% 	\item If the signs are the same and positive:
+	% 	\begin{itemize}
+	% 		\item If \texttt{ncoeffs} differ, the one with fewer coefficients is smaller.
+	% 		\item If \texttt{ncoeffs} are the same, compare coefficients from most significant to least significant. The first pair of non-equal coefficients determines the result.
+	% 	\end{itemize}
+	% 	\item If the signs are the same and negative, the logic is reversed: the number with the larger magnitude is smaller.
+	% \end{enumerate}
+	
+	% The implementation of the \texttt{hpi\_less} function is:
+	% \lstinputlisting[firstline=517, lastline=556]{../src/HighPrecisionInteger.f90}
+	
+	% \section{Utility Functions}
+	% \subsection{\texttt{hpi\_power}}
+	% Calculates $B^E$ for a high-precision base $B$ and an integer exponent $E \ge 0$. It uses the efficient \textbf{exponentiation by squaring} algorithm. This reduces the number of multiplications from $O(E)$ to $O(\log E)$.
+	
+	% \lstinputlisting[firstline=757, lastline=783]{../src/HighPrecisionInteger.f90}
+	
+	% \subsection{\texttt{hpi\_scale\_up\_by\_base\_power}}
+	% This is a highly efficient multiplication by a power of the internal base, $B=2^{32}$. Multiplying a number $N$ by $B^k$ is equivalent to shifting its coefficients to the left by $k$ positions, i.e., prepending $k$ zeros.
+	% \begin{equation}
+	% 	N \times B^k = \left( \sum_{i=1}^{n} c_i B^{i-1} \right) \times B^k = \sum_{i=1}^{n} c_i B^{i+k-1} = \sum_{j=k+1}^{n+k} c_{j-k} B^{j-1}
+	% \end{equation}
+	% This is used as an optimization within the long division algorithm.
+	
+	% \lstinputlisting[firstline=727, lastline=754]{../src/HighPrecisionInteger.f90}
+	
+	% \subsection{\texttt{new\_hpi\_from\_coeffs}}
+	% This constructor creates a new \texttt{high\_precision\_int} from a raw array of coefficients and an optional sign. It's primarily used internally after arithmetic operations.
+	% \lstinputlisting[firstline=48, lastline=80]{../src/HighPrecisionInteger.f90}
+	
+	% \subsection{\texttt{hpi\_abs}}
+	% Returns the absolute value of a \texttt{high\_precision\_int}.
+	% \lstinputlisting[firstline=389, lastline=393]{../src/HighPrecisionInteger.f90}
+	
+	% \subsection{\texttt{hpi\_is\_zero}}
+	% Checks if a \texttt{high\_precision\_int} represents the value zero.
+	% \lstinputlisting[firstline=510, lastline=514]{../src/HighPrecisionInteger.f90}
+	
+	% \subsection{\texttt{print\_hpi}}
+	% Displays a \texttt{high\_precision\_int} to the console, showing both its decimal representation and internal coefficients.
+	% \lstinputlisting[firstline=699, lastline=724]{../src/HighPrecisionInteger.f90}
+	
+	\end{document}
