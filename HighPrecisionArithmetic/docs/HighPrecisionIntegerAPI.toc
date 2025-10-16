@@ -1,5 +1,0 @@
-\contentsline {section}{\numberline {1}Introduction}{2}{section.1}%
-\contentsline {section}{\numberline {2}High-Precision Integer Representation: \texttt {high\_precision\_int}}{2}{section.2}%
-\contentsline {section}{\numberline {3}Normalization Procedure: \texttt {normalize\_hpi}}{3}{section.3}%
-\contentsline {section}{\numberline {4}HPI Constructor from Integer: \texttt {new\_hpi\_from\_integer}}{6}{section.4}%
-\contentsline {section}{\numberline {5}HPI to Integer Converter: \texttt {hpi\_to\_integer}}{8}{section.5}%
